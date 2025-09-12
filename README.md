@@ -38,7 +38,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
   autonumber
-  actor U as Usuário
+  actor U as PCP-WLA
   participant RD as Rundeck (WLASaaS)
   participant BAS as Bastion (SSH)
   participant API as OpenShift API
