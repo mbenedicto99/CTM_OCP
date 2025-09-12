@@ -134,14 +134,15 @@ flowchart LR
     IN["Infra Node"]
     API["OCP Scheduller"]
     NS["Namespace alvo"]
-    AG["Resultado de execução"]
+    AG["POD"]
   end
 
   CM -- "oc/kubectl Ingress (6443)" --> IN
   IN -- "Ingress Interno (6443)" --> API
   API -- "Submete Job" --> NS
 
-  NS -- "Responde Resultado - Egress  (6444)" --> CM
+  NS -- "Autentica Execução" --> AG
+  AG -- "Responde Resultado - Egress  (6444)" --> CM
 ```
 
 ## Arquivos úteis deste repositório
