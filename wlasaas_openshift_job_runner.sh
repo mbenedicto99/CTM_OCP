@@ -8,7 +8,7 @@ set -euo pipefail
 #############################
 # VARIÁVEIS (ajuste no Control-M)
 #############################
-: "${KUBECONFIG:=/opt/controlm/secrets/kubeconfig}"     # caminho do kubeconfig (montado via Secret/Agent Vault)
+: "${KUBECONFIG:=/opt/wlasaas/secrets/kubeconfig}"     # caminho do kubeconfig (montado via Secret/Agent Vault)
 : "${OC_BIN:=/usr/local/bin/oc}"                        # caminho do 'oc'
 : "${NAMESPACE:=meu-namespace}"                         # namespace alvo
 : "${JOB_NAME:=job-exemplo}"                            # nome único do Job
@@ -22,7 +22,7 @@ set -euo pipefail
 : "${JOB_ACTIVE_DEADLINE:=900}"                         # tempo máx de execução do Job
 : "${WAIT_TIMEOUT:=1200s}"                              # tempo de espera para completar
 : "${CLEANUP:=true}"                                    # true/false apagar Job após logs
-: "${ANNOTATIONS:=controlm/source=ec2,workload/type=batch,env=prod}"  # annotations extras (vírgula separadas)
+: "${ANNOTATIONS:=wlasaas/source=ec2,workload/type=batch,env=prod}"  # annotations extras (vírgula separadas)
 
 #############################
 # FUNÇÕES AUXILIARES
@@ -66,7 +66,7 @@ $(to_yaml_annotations)
         app.kubernetes.io/managed-by: control-m
     spec:
       restartPolicy: Never
-      serviceAccountName: controlm-sa
+      serviceAccountName: wlasaas-sa
       containers:
       - name: ${JOB_NAME}
         image: ${IMAGE}

@@ -56,7 +56,7 @@ subjects:
 
 Aplicação:
 ```bash
-oc -n meu-namespace apply -f rbac-controlm.yaml
+oc -n meu-namespace apply -f rbac-wlasaas.yaml
 ```
 
 ## NetworkPolicy recomendada
@@ -109,7 +109,7 @@ export NAMESPACE=meu-namespace
 export JOB_NAME=job-exemplo
 export IMAGE=registry.access.redhat.com/ubi9/ubi-minimal
 export CMD="/bin/sh -lc 'echo hello from wlasaas && sleep 2'"
-./controlm_openshift_job_runner.sh
+./wlasaas_openshift_job_runner.sh
 ```
 
 O script cria o Job, aguarda conclusão, captura logs e faz limpeza (TTL ou delete).
@@ -149,4 +149,4 @@ flowchart LR
 
 - `wlasaas_openshift_job_runner.sh` – criação/execução de Jobs no namespace, com captura de logs e limpeza.
 - `allow-wlasaas-and-namespace-rules.sh` – regras de firewall e NetworkPolicies.
-- `rbac-controlm.yaml` – ServiceAccount, Role e RoleBinding mínimos.
+- `rbac-wlasaas.yaml` – ServiceAccount, Role e RoleBinding mínimos.

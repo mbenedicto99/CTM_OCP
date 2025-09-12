@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# allow-controlm-and-namespace-rules.sh
+# allow-wlasaas-and-namespace-rules.sh
 # Objetivo: liberar conexão ENTRANTE do Control-M (EC2/VPN) para o API do OpenShift
 #           e criar NetworkPolicy no namespace alvo
 # Requisitos: executar no host que controla o firewall do VIP/masters (ou no próprio VIP),
@@ -79,7 +79,7 @@ render_netpol_ingress() {
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-controlm-ingress
+  name: allow-wlasaas-ingress
   namespace: ${NAMESPACE}
 spec:
   podSelector:
@@ -102,7 +102,7 @@ render_netpol_egress() {
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-egress-to-controlm
+  name: allow-egress-to-wlasaas
   namespace: ${NAMESPACE}
 spec:
   podSelector: {}
