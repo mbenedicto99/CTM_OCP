@@ -49,6 +49,8 @@ sequenceDiagram
   RD->>BAS: SSH + script runner
   BAS->>API: oc apply -f job.yaml (SA escopada)
   API->>NS: Cria Job/Pod
+  NS->>POD: Executa Job/Pod
+  POD->>NS: Retorna Execuçao
   BAS->>API: oc wait --for=condition=complete
   BAS->>API: oc logs job/<name>
   API-->>BAS: stdout/logs
