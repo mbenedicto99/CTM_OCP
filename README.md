@@ -131,8 +131,8 @@ flowchart LR
   end
 
   subgraph OCP["OpenShift"]
-    IN["Kubernetes Infra Node"]
-    API["Kubernetes Scheduller API"]
+    IN["Infra Node"]
+    API["OCP Scheduller"]
     NS["Namespace alvo"]
     AG["Resultado de execução"]
   end
