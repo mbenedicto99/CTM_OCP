@@ -60,9 +60,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-  RD[Rundeck (AWS)] -->|SSH :22| BAS[Bastion (DMZ/Privado)]
-  BAS -->|HTTPS :6443| API[OpenShift API]
-  BAS -. opcional .->|443| REG[Registry/Artifact Repo]
+  RD["Rundeck (AWS)"] -->|SSH :22| BAS["Bastion (DMZ/Privado)"]
+  BAS -->|HTTPS :6443| API["OpenShift API"]
+  BAS -. opcional .->|443| REG["Registry/Artifact Repo"]
 
   classDef bastion fill:#f7f7f7,stroke:#333,stroke-width:1px
   class BAS bastion
