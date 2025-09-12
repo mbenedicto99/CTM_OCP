@@ -141,7 +141,7 @@ flowchart LR
   IN -- "Ingress (6443)" --> API
   API -- "Submete Job" --> NS
 
-  AG -- "Conexão de Retorno" --> IN 
+  NS -- "Responde Execução" --> IN
   IN -- "Egress (6444)" --> CM
 ```
 
