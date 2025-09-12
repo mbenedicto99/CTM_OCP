@@ -141,7 +141,8 @@ flowchart LR
   IN -- "Ingress Interno (6443)" --> API
   API -- "Submete Job" --> NS
 
-  NS -- "Responde Execução Egress (6444)" --> CM
+  NS -- "Executa JOB" --> AG
+  AG -- "Responde Execução Egress (6444)" --> CM
 ```
 
 ## Arquivos úteis deste repositório
