@@ -127,18 +127,18 @@ O script cria o Job, aguarda conclusão, captura logs e faz limpeza (TTL ou dele
 ```mermaid
 flowchart LR
   subgraph AWS["EC2 / AWS"]
-    CM["WLASAAS Server"]
+    CM["WLASAAS Server Rundeck"]
   end
 
   subgraph OCP["OpenShift"]
-    IN["Infra Node"]
-    API["Kubernetes API"]
+    IN["Kubernetes Infra Node"]
+    API["Kubernetes Scheduller API"]
     NS["Namespace alvo"]
     AG["Resultado de execução"]
   end
 
-  CM -- "oc/kubectl via VPN" --> IN
-  IN -- "Ingress (6443)" --> API
+  CM -- "oc/kubectl Ingress (6443)" --> IN
+  IN -- "Ingress Interno (6443)" --> API
   API -- "Submete Job" --> NS
 
   NS -- "Responde Execução" --> IN
