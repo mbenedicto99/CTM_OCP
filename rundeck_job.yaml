@@ -1,0 +1,47 @@
+- project: SeuProjeto
+  name: Run-OpenShift-Job-via-Bastion
+  description: Executa um Job no OpenShift via Bastion (SSH + oc)
+  loglevel: INFO
+  nodeFilterEditable: false
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - script: |
+          set -euo pipefail
+          export KUBECONFIG=/etc/kubernetes/kubeconfig-wlasaas
+          NS="${option.ns}"
+          JOB_NAME="${option.job_name}"
+          cat <<'YAML' | oc -n "$NS" apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: '"${option.job_name}"'
+          spec:
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                serviceAccountName: wlasaas
+                restartPolicy: Never
+                containers:
+                - name: runner
+                  image: registry.access.redhat.com/ubi9/ubi-minimal
+                  command: ["/bin/sh","-lc"]
+                  args: ["echo hello from wlasaas; sleep 2"]
+                  securityContext:
+                    runAsNonRoot: true
+                    allowPrivilegeEscalation: false
+          YAML
+          oc -n "$NS" wait --for=condition=complete "job/$JOB_NAME" --timeout=15m
+          oc -n "$NS" logs "job/$JOB_NAME"
+  nodefilters:
+    filter: name: bastion
+  options:
+    - name: ns
+      description: Namespace de destino no OpenShift
+      required: true
+      value: meu-namespace
+    - name: job_name
+      description: Nome do Job a ser criado/executado
+      required: true
+      value: job-exemplo

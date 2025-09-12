@@ -1,0 +1,7 @@
+bastion:
+  hostname: bastion.interna.seu.dominio
+  nodename: bastion
+  username: ec2-user
+  ssh-key-storage-path: keys/bastion_id_rsa
+  osFamily: unix
+  tags: bastion,ssh

@@ -1,28 +1,122 @@
-# Integração WLASaaS com OpenShift
+# Integração WLASaaS (Rundeck) → Bastion (SSH) → OpenShift
 
-Este README descreve arquiteturas, requisitos e passos para orquestrar workloads do OpenShift a partir do WLASaaS rodando em EC2/AWS, com foco em segurança, observabilidade e aderência a segurança.
+Arquitetura para executar Jobs do Rundeck no OpenShift usando **jump host (Bastion)** via **SSH**, com `oc/kubectl` e kubeconfig no Bastion. Objetivos: simplicidade operacional, controle de acesso por namespace e trilha de auditoria ponta a ponta.
 
-## Arquiteturas suportadas
+## 1) Arquitetura (Mermaid)
 
-1. Agent dentro do OpenShift
-   - Implantar Agent como Deployment no cluster.
-   - Conexão de saída do Agent para o WLASAAS Server na AWS.
-   - RBAC mínimo por namespace.
-   - Melhor resiliência e menor latência para criar Jobs/Pods e coletar logs.
+```mermaid
+flowchart LR
+  subgraph AWS["AWS - WLASaaS (Rundeck)"]
+    RD[(Rundeck)]
+  end
 
-2. Agent fora do OpenShift (EC2)
-   - WLASAAS chama `oc/kubectl` com kubeconfig apontando para o API on-prem (VPN).
-   - Menos componentes no cluster, porém sensível à latência e dependente de conectividade estável.
+  subgraph DMZ["Bastion Host (Jump)"]
+    BAS[(Bastion SSH)]
+  end
 
-## Requisitos de rede
+  subgraph GCP["GCP - OpenShift"]
+    APIS[(API Server :6443)]
+    NS[(Namespace alvo)]
+    JOB[(Job/Pod)]
+  end
 
-- Conectividade privada AWS ↔ GCP ↔ Namespace (Site-to-Site VPN ou Gateway).
-- Acesso ao API do OpenShift (6443/tcp) a partir da origem que executará `oc`.
-- Opcional: portas do Router/Ingress (443) somente se for necessário acesso direto a serviços expostos.
+  RD -- "SSH 22\nKey Storage (chave/usuário)" --> BAS
+  BAS -- "oc/kubectl\nKUBECONFIG (SA token)" --> APIS
+  APIS --> NS
+  NS --> JOB
+  JOB -- "logs/status via oc" --> BAS
+  BAS -- "stdout/exit code" --> RD
+```
 
-## RBAC mínimo por namespace
+**Notas rápidas**
+- Nenhuma exposição pública do API do OpenShift ao WLASaaS; somente o **Bastion** acessa o **:6443**.
+- O **kubeconfig + SA** ficam **apenas** no Bastion (rotação periódica).
+- Execução confinada ao **namespace** por **RBAC mínimo**.
 
-Arquivo `rbac-wlasaas.yaml` (modelo):
+## 2) Fluxo de Execução (Sequência)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as Usuário
+  participant RD as Rundeck (WLASaaS)
+  participant BAS as Bastion (SSH)
+  participant API as OpenShift API
+  participant NS as Namespace
+  participant POD as Job/Pod
+
+  U->>RD: Start Job (parâmetros)
+  RD->>BAS: SSH + script runner
+  BAS->>API: oc apply -f job.yaml (SA escopada)
+  API->>NS: Cria Job/Pod
+  BAS->>API: oc wait --for=condition=complete
+  BAS->>API: oc logs job/<name>
+  API-->>BAS: stdout/logs
+  BAS-->>RD: saída + código de retorno
+  RD-->>U: status final e artefatos
+```
+
+## 3) Caminho de Rede e Portas
+
+```mermaid
+flowchart TB
+  RD[Rundeck (AWS)] -->|SSH :22| BAS[Bastion (DMZ/Privado)]
+  BAS -->|HTTPS :6443| API[OpenShift API]
+  BAS -. opcional .->|443| REG[Registry/Artifact Repo]
+
+  classDef bastion fill:#f7f7f7,stroke:#333,stroke-width:1px
+  class BAS bastion
+```
+
+- **Obrigatório**: SSH `22/tcp` (WLASaaS → Bastion) e **6443/tcp** (Bastion → API OpenShift).
+- **Opcional**: `443/tcp` do Bastion para registries/artifacts aprovados.
+
+## 4) Controles de Segurança (essenciais)
+- **RBAC mínimo por namespace** (Role/RoleBinding) + **ServiceAccount** dedicado.
+- **Kubeconfig/SA token** **somente** no Bastion; rotação via **TokenRequest**; sem credenciais no WLASaaS.
+- **NetworkPolicy** restritiva no namespace (default-deny + allow para o que o Job realmente usa).
+- **SCC/PSA** “restricted”; `runAsNonRoot`, `readOnlyRootFilesystem`, `capabilities: drop`.
+- **Auditoria**: logs do Rundeck + `oc` + Audit do K8s enviados ao SIEM.
+- **TTLSecondsAfterFinished** nos Jobs e limpeza automática de recursos.
+
+## 5) Execução (exemplo de comando remoto)
+
+> Chamado pelo Rundeck via SSH no Bastion.
+
+```bash
+# no Bastion (executado via SSH pelo Rundeck)
+set -euo pipefail
+export KUBECONFIG=/etc/kubernetes/kubeconfig-wlasaas
+NS="${NS:-meu-namespace}"
+JOB_NAME="${JOB_NAME:-job-exemplo}"
+
+cat <<'YAML' | oc -n "$NS" apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: '"$JOB_NAME"'
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: wlasaas
+      restartPolicy: Never
+      containers:
+      - name: runner
+        image: registry.access.redhat.com/ubi9/ubi-minimal
+        command: ["/bin/sh","-lc"]
+        args: ["echo hello from wlasaas; sleep 2"]
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+YAML
+
+oc -n "$NS" wait --for=condition=complete "job/$JOB_NAME" --timeout=15m
+oc -n "$NS" logs "job/$JOB_NAME"
+```
+
+## 6) RBAC mínimo (namespace)
+
 ```yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -54,99 +148,89 @@ subjects:
   name: wlasaas
 ```
 
-Aplicação:
-```bash
-oc -n meu-namespace apply -f rbac-wlasaas.yaml
-```
+## 7) Rundeck – Recursos do Projeto (Bastion)
 
-## NetworkPolicy recomendada
+Crie/atualize o arquivo `resources.yaml` do projeto:
 
-Default-deny + regras explícitas para a origem do WLASaaS. Exemplo:
 ```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-wlasaas-ingress
-spec:
-  podSelector:
-    matchLabels:
-      app: meu-app
-  policyTypes: ["Ingress"]
-  ingress:
-  - from:
-    - ipBlock:
-        cidr: 10.50.60.0/24
-    ports:
-    - protocol: TCP
-      port: 8080
-    - protocol: TCP
-      port: 9090
+bastion:
+  hostname: bastion.interna.seu.dominio
+  nodename: bastion
+  username: ec2-user
+  ssh-key-storage-path: keys/bastion_id_rsa
+  osFamily: unix
+  tags: bastion,ssh
+```
+
+> Ajuste `hostname`, `username` e o caminho da chave no **Key Storage**.
+
+## 8) Rundeck – Template de Job (import)
+
+Arquivo `rundeck_job.yaml` (para **Import Jobs** no Rundeck):
+
+```yaml
+- project: SeuProjeto
+  name: Run-OpenShift-Job-via-Bastion
+  description: Executa um Job no OpenShift via Bastion (SSH + oc)
+  loglevel: INFO
+  nodeFilterEditable: false
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - script: |
+          set -euo pipefail
+          export KUBECONFIG=/etc/kubernetes/kubeconfig-wlasaas
+          NS="${option.ns}"
+          JOB_NAME="${option.job_name}"
+          cat <<'YAML' | oc -n "$NS" apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: '"${option.job_name}"'
+          spec:
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                serviceAccountName: wlasaas
+                restartPolicy: Never
+                containers:
+                - name: runner
+                  image: registry.access.redhat.com/ubi9/ubi-minimal
+                  command: ["/bin/sh","-lc"]
+                  args: ["echo hello from wlasaas; sleep 2"]
+                  securityContext:
+                    runAsNonRoot: true
+                    allowPrivilegeEscalation: false
+          YAML
+          oc -n "$NS" wait --for=condition=complete "job/$JOB_NAME" --timeout=15m
+          oc -n "$NS" logs "job/$JOB_NAME"
+  nodefilters:
+    filter: name: bastion
+  options:
+    - name: ns
+      description: Namespace de destino no OpenShift
+      required: true
+      value: meu-namespace
+    - name: job_name
+      description: Nome do Job a ser criado/executado
+      required: true
+      value: job-exemplo
+```
+
+## 9) Passos de Import no Rundeck
+1. **Project Settings → Edit Nodes**: cole o `resources.yaml` (ou configure o Bastion via fonte de nós).
+2. **Project Settings → Jobs → Upload Definition**: importe `rundeck_job.yaml`.
+3. **Key Storage**: suba a chave SSH do Bastion (ex.: `keys/bastion_id_rsa`) e referencie no `resources.yaml`.
+4. Teste o job passando `ns` e `job_name`.
+
+## 10) Checklist Rápido
+- [ ] Bastion com **`oc`** e **kubeconfig (SA)** do namespace.
+- [ ] **RBAC + SCC/PSA** aplicados.
+- [ ] **Rede liberada**: AWS→Bastion `22/tcp`; Bastion→API `6443/tcp`.
+- [ ] **Key Storage** configurado no Rundeck para o Bastion.
+- [ ] Job importado e executando com logs retornando ao WLASaaS.
+
 ---
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-egress-to-wlasaas
-spec:
-  podSelector: {}
-  policyTypes: ["Egress"]
-  egress:
-  - to:
-    - ipBlock:
-        cidr: 10.50.60.0/24
-    ports:
-    - protocol: TCP
-      port: 7005
-    - protocol: TCP
-      port: 7006
-```
 
-## Invocação de Job via WLASaaS
-
-Script genérico chamado pelo Control-M (exemplo de parâmetros):
-```bash
-export KUBECONFIG=/opt/wlasaas/secrets/kubeconfig
-export NAMESPACE=meu-namespace
-export JOB_NAME=job-exemplo
-export IMAGE=registry.access.redhat.com/ubi9/ubi-minimal
-export CMD="/bin/sh -lc 'echo hello from wlasaas && sleep 2'"
-./wlasaas_openshift_job_runner.sh
-```
-
-O script cria o Job, aguarda conclusão, captura logs e faz limpeza (TTL ou delete).
-
-## Segurança e boas práticas
-
-- Princípio do menor privilégio no RBAC e tokens de curta duração.
-- NetworkPolicy restritiva por namespace.
-- Secrets no cluster e cofre no Control-M para kubeconfig/tokens.
-- TTLSecondsAfterFinished para limpeza automática de recursos.
-- Auditoria e logs centralizados para trilha de mudanças e compliance.
-
-## Diagrama (Mermaid)
-
-```mermaid
-flowchart LR
-  subgraph AWS["EC2 / AWS"]
-    CM["WLASAAS Server Rundeck"]
-  end
-
-  subgraph OCP["OpenShift"]
-    IN["Infra Node"]
-    API["OCP Scheduller"]
-    NS["Namespace alvo"]
-    AG["POD"]
-  end
-
-  CM -- "oc/kubectl Ingress (6443)" --> IN
-  IN -- "Ingress Interno (6443)" --> API
-  API -- "Submete Job" --> NS
-
-  NS -- "Autentica Execução" --> AG
-  AG -- "Responde Resultado - Egress  (6444)" --> CM
-```
-
-## Arquivos úteis deste repositório
-
-- `wlasaas_openshift_job_runner.sh` – criação/execução de Jobs no namespace, com captura de logs e limpeza.
-- `allow-wlasaas-and-namespace-rules.sh` – regras de firewall e NetworkPolicies.
-- `rbac-wlasaas.yaml` – ServiceAccount, Role e RoleBinding mínimos.
+> Observação: para cargas reais, substitua a imagem/`args` do Job e mantenha `ttlSecondsAfterFinished` e a coleta de logs/exit code para visibilidade e limpeza automática.
